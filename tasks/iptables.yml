@@ -1,22 +1,11 @@
-- name: Change facts to use netfilter-persistent on Debian >= 9 or Ubuntu >= 16
-  set_fact:
-    iptables_save_command: "/usr/sbin/netfilter-persistent save"
-    iptables_service: netfilter-persistent
-  when: (ansible_distribution == 'Debian' and ansible_distribution_version|int >= 9) or (ansible_distribution == 'Ubuntu' and ansible_lsb.major_release|int >= 16)
-
-- name: Install iptables-persistent (Debian/Ubuntu)
-  package:
-    name: iptables-persistent
-    state: present
-  register: __iptables_installed
-  when: ansible_os_family == "Debian"
-
 - name: Install iptables-services (RedHat/CentOS)
   package:
     name: iptables-services
     state: present
   register: __iptables_installed
   when: ansible_os_family == "RedHat"
+  tags:
+    - firewall
 
 - name: iptables - Allow VPN forwarding
   iptables:
@@ -26,16 +15,19 @@
     action: insert
     comment: "Allow VPN forwarding"
   notify: "save iptables"
+  tags:
+    - firewall
 
 - name: iptables - Allow incoming SSH connection
-  iptables:
-    chain: INPUT
-    protocol: tcp
-    destination_port: "{{ ansible_port | default(22) }}"
-    jump: ACCEPT
-    action: insert
-    comment: "Allow incoming SSH connection"
+  iptables_raw:
+    name: ssh
+    rules: |
+      -A INPUT -p tcp -m tcp --dport {{ ansible_port | default(22) }} -m state --state RELATED,ESTABLISHED -j ACCEPT
+      -A INPUT -p tcp -m tcp --dport {{ ansible_port | default(22) }} -m state --state NEW -m recent --set --name ssh --mask 255.255.255.255 --rsource
+      -A INPUT -p tcp -m tcp --dport {{ ansible_port | default(22) }} -m state --state NEW -m recent ! --rcheck --seconds 60 --hitcount 4 --name ssh --mask 255.255.255.255 --rsource -j ACCEPT
   notify: "save iptables"
+  tags:
+    - firewall
 
 - name: iptables - Allow incoming VPN connection
   iptables:
@@ -46,6 +38,8 @@
     action: insert
     comment: "Allow incoming VPN connection"
   notify: "save iptables"
+  tags:
+    - firewall
 
 - name: iptables - Accept packets from VPN tunnel adaptor
   iptables:
@@ -55,6 +49,8 @@
     action: insert
     comment: "Accept packets from VPN tunnel adaptor"
   notify: "save iptables"
+  tags:
+    - firewall
 
 - name: iptables - Perform NAT readdressing
   iptables:
@@ -67,6 +63,8 @@
     comment: "Perform NAT readdressing"
   when: not openvpn_masquerade_not_snat
   notify: "save iptables"
+  tags:
+    - firewall
 
 - name: iptables - Perform NAT readdressing with MASQUERADE
   iptables:
@@ -78,13 +76,19 @@
     comment: "Perform NAT readdressing"
   when: openvpn_masquerade_not_snat
   notify: "save iptables"
+  tags:
+    - firewall
 
 - name: Save existing iptables rule before start iptables service
   shell: "{{ iptables_save_command }}"
   when: __iptables_installed.changed|bool
+  tags:
+    - firewall
 
 - name: Enable iptables
   service:
     name: "{{ iptables_service }}"
     enabled: true
     state: started
+  tags:
+    - firewall
