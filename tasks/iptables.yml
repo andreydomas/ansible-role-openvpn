@@ -18,13 +18,35 @@
   tags:
     - firewall
 
+- name: iptables - Allow ESTABLISHED
+  iptables:
+    chain: INPUT
+    ctstate: RELATED,ESTABLISHED
+    jump: ACCEPT
+    action: insert
+    comment: "Allow ESTABLISHED"
+  notify: "save iptables"
+  tags:
+    - firewall
+
 - name: iptables - Allow incoming SSH connection
   iptables_raw:
     name: ssh
     rules: |
-      -A INPUT -p tcp -m tcp --dport {{ ansible_port | default(22) }} -m state --state RELATED,ESTABLISHED -j ACCEPT
       -A INPUT -p tcp -m tcp --dport {{ ansible_port | default(22) }} -m state --state NEW -m recent --set --name ssh --mask 255.255.255.255 --rsource
       -A INPUT -p tcp -m tcp --dport {{ ansible_port | default(22) }} -m state --state NEW -m recent ! --rcheck --seconds 60 --hitcount 4 --name ssh --mask 255.255.255.255 --rsource -j ACCEPT
+  notify: "save iptables"
+  tags:
+    - firewall
+
+- name: iptables - Allow incoming socks5 sonnections
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{socks5_port}}"
+    jump: ACCEPT
+    action: insert
+    comment: "Allow incoming socks5 connection"
   notify: "save iptables"
   tags:
     - firewall
